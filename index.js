@@ -1,4 +1,3 @@
-
 const express = require("express");
 const axios = require("axios");
 const cors = require("cors");
@@ -18,14 +17,24 @@ const supabase = createClient(
   process.env.SUPABASE_KEY
 );
 
-// Normalize phone
 const normalizePhone = (phone) =>
-  phone.replace(/\D/g, '').trim();
+  phone.replace(/\D/g, "").slice(-10);
 
-// /// SEND OTP
+app.get("/", (req, res) => {
+  res.send("Fast2SMS OTP Server Running 🚀");
+});
+
+/// SEND OTP
 app.post("/send-otp", async (req, res) => {
   try {
     let { phone } = req.body;
+
+    if (!phone) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone number required",
+      });
+    }
 
     phone = normalizePhone(phone);
 
@@ -65,8 +74,10 @@ app.post("/send-otp", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("SEND OTP ERROR:",
-      err.response?.data || err.message);
+    console.error(
+      "SEND OTP ERROR:",
+      err.response?.data || err.message
+    );
 
     return res.status(500).json({
       success: false,
@@ -79,6 +90,13 @@ app.post("/send-otp", async (req, res) => {
 app.post("/verify-otp", async (req, res) => {
   try {
     let { phone, otp } = req.body;
+
+    if (!phone || !otp) {
+      return res.status(400).json({
+        success: false,
+        error: "Phone and OTP required",
+      });
+    }
 
     phone = normalizePhone(phone);
 
@@ -123,7 +141,7 @@ app.post("/verify-otp", async (req, res) => {
 
     const { data: existingUser } = await supabase
       .from("users")
-      .select("*")
+      .select("id")
       .eq("phone", phone)
       .maybeSingle();
 
@@ -150,8 +168,10 @@ app.post("/verify-otp", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("VERIFY ERROR:",
-      err.response?.data || err.message);
+    console.error(
+      "VERIFY ERROR:",
+      err.response?.data || err.message
+    );
 
     return res.status(500).json({
       success: false,
@@ -160,8 +180,8 @@ app.post("/verify-otp", async (req, res) => {
   }
 });
 
+const PORT = process.env.PORT || 5000;
 
-
-app.listen(3000, () => {
-  console.log("🚀 Server running on port 3000");
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 Server running on port ${PORT}`);
 });
