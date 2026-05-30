@@ -97,16 +97,15 @@ app.post("/send-otp", async (req, res) => {
     });
 
   } catch (err) {
-    console.error(
-      "OTP Error:",
-      err.response?.data || err.message
-    );
+  console.log("STATUS:", err.response?.status);
+  console.log("DATA:", err.response?.data);
+  console.log("MESSAGE:", err.message);
 
-    res.status(500).json({
-      success: false,
-      error: err.response?.data || err.message,
-    });
-  }
+  return res.status(500).json({
+    success: false,
+    error: err.response?.data || err.message,
+  });
+}
 });
 
 /// VERIFY OTP
