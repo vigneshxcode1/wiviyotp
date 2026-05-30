@@ -44,7 +44,6 @@ app.get("/test-fast2sms", async (req, res) => {
   }
 });
 
-
 /// SEND OTP
 app.post("/send-otp", async (req, res) => {
   try {
@@ -52,60 +51,38 @@ app.post("/send-otp", async (req, res) => {
 
     phone = normalizePhone(phone);
 
-    const otp = generateOtp();
-
-    const otpHash = crypto
-      .createHash("sha256")
-      .update(otp)
-      .digest("hex");
-
-    const expiresAt = new Date(
-      Date.now() + 5 * 60 * 1000
-    ).toISOString();
-
-    const { error } = await supabase
-      .from("otp_verifications")
-      .upsert({
-        phone,
-        otp_hash: otpHash,
-        expires_at: expiresAt,
-      });
-
-    if (error) throw error;
-
     const response = await axios.post(
-      "https://www.fast2sms.com/dev/otp",
+      "https://www.fast2sms.com/dev/otp/send",
       {
-        otp_id: "45d6bbbddb",
-        variables_values: otp,
-        route: "otp",
-        numbers: phone,
+        mobile: phone,
+        otp_id: "45d6bbbddb"
       },
       {
         headers: {
+          accept: "application/json",
           authorization: process.env.FAST2SMS_API_KEY,
-          "Content-Type": "application/json",
+          "content-type": "application/json",
         },
       }
     );
 
-    console.log("Fast2SMS:", response.data);
+    console.log("Fast2SMS Response:", response.data);
 
-    res.json({
+    return res.json({
       success: true,
-      message: "OTP sent successfully",
+      data: response.data,
     });
 
   } catch (err) {
-  console.log("STATUS:", err.response?.status);
-  console.log("DATA:", err.response?.data);
-  console.log("MESSAGE:", err.message);
+    console.log("STATUS:", err.response?.status);
+    console.log("DATA:", err.response?.data);
+    console.log("MESSAGE:", err.message);
 
-  return res.status(500).json({
-    success: false,
-    error: err.response?.data || err.message,
-  });
-}
+    return res.status(500).json({
+      success: false,
+      error: err.response?.data || err.message,
+    });
+  }
 });
 
 /// VERIFY OTP
