@@ -1,12 +1,10 @@
+require("dotenv").config();
 
 const express = require("express");
 const axios = require("axios");
 const cors = require("cors");
-const dotenv = require("dotenv");
 const crypto = require("crypto");
 const { createClient } = require("@supabase/supabase-js");
-
-dotenv.config();
 
 const app = express();
 
@@ -18,148 +16,153 @@ const supabase = createClient(
   process.env.SUPABASE_KEY
 );
 
-// Normalize phone
-const normalizePhone = (phone) =>
-  phone.replace(/\D/g, '').trim();
+function generateOtp() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
 
-/// SEND OTP
+function normalizePhone(phone) {
+  return phone.replace(/\D/g, "").slice(-10);
+}
+
+// Send OTP
 app.post("/send-otp", async (req, res) => {
   try {
-    let { phone } = req.body;
+    const phone = normalizePhone(req.body.phone);
 
-    phone = normalizePhone(phone);
-
-    console.log("📤 Sending OTP to:", phone);
-
-    const response = await axios.get(
-      // `https://2factor.in/API/V1/${process.env.API_KEY}/SMS/+${phone}/AUTOGEN`
-      `https://2factor.in/API/V1/${process.env.API_KEY}/SMS/${phone}/AUTOGEN`
-    );
-
-
-console.log("2Factor Response:");
-console.log(JSON.stringify(response.data, null, 2));
-
-    const sessionId = response.data.Details;
-
-    console.log("✅ Session ID:", sessionId);
-
-    await supabase
-      .from("otp_sessions")
-      .delete()
-      .eq("phone", phone);
-
-    const { error: insertError } = await supabase
-      .from("otp_sessions")
-      .insert({
-        phone,
-        session_id: sessionId,
-        created_at: new Date().toISOString(),
-      });
-
-    if (insertError) {
-      console.error(insertError);
-
-      return res.status(500).json({
-        error: "Failed to save OTP session",
+    if (!phone) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone number required",
       });
     }
 
-    res.json({ success: true });
+    const otp = generateOtp();
 
-  } catch (err) {
-    console.error("❌ send-otp error:", err.message);
+    const otpHash = crypto
+      .createHash("sha256")
+      .update(otp)
+      .digest("hex");
 
-    res.status(500).json({
-      error: "Failed to send OTP",
-    });
+    const expiresAt = new Date(
+      Date.now() + 5 * 60 * 1000
+    ).toISOString();
+
+    const { error } = await supabase
+      .from("otp_verifications")
+      .upsert({
+        phone,
+        otp_hash: otpHash,
+        expires_at: expiresAt,
+      });
+
+    if (error) throw error;
+
+    const smsResponse = await axios.post(
+  "https://www.fast2sms.com/dev/bulkV2",
+  {
+    route: "otp",
+    variables_values: otp,
+    numbers: phone,
+  },
+  {
+    headers: {
+      authorization: process.env.FAST2SMS_API_KEY,
+      "Content-Type": "application/json",
+    },
   }
+);
+
+    return res.json({
+      success: true,
+      message: "OTP sent successfully",
+      data: smsResponse.data,
+    });
+  } catch (e) {
+  console.error(
+    "OTP Error:",
+    e.response?.data || e.message || e
+  );
+
+  return res.status(500).json({
+    success: false,
+    message: "Failed to send OTP",
+    error: e.response?.data || e.message,
+  });
+}
 });
 
-/// VERIFY OTP
+// Verify OTP
 app.post("/verify-otp", async (req, res) => {
   try {
-    let { phone, otp } = req.body;
+    const phone = normalizePhone(req.body.phone);
+    const otp = req.body.otp;
 
-    phone = normalizePhone(phone);
+    if (!phone || !otp) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone and OTP required",
+      });
+    }
 
-    console.log("📲 Verifying OTP for phone:", phone);
-
-    const { data: sessionData, error: sessionError } = await supabase
-      .from("otp_sessions")
+    const { data, error } = await supabase
+      .from("otp_verifications")
       .select("*")
       .eq("phone", phone)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .single();
 
-    if (sessionError) {
-      console.error("Session lookup error:", sessionError);
-
-      return res.status(500).json({
-        error: "Session lookup failed",
+    if (error || !data) {
+      return res.status(404).json({
+        success: false,
+        message: "OTP not found",
       });
     }
 
-    if (!sessionData) {
+    if (
+      new Date(data.expires_at) < new Date()
+    ) {
       return res.status(400).json({
-        error: "OTP session expired",
+        success: false,
+        message: "OTP expired",
       });
     }
 
-    console.log("✅ Session found:", sessionData.session_id);
+    const otpHash = crypto
+      .createHash("sha256")
+      .update(otp)
+      .digest("hex");
 
-    const response = await axios.get(
-      `https://2factor.in/API/V1/${process.env.API_KEY}/SMS/VERIFY/${sessionData.session_id}/${otp}`
-    );
-
-    console.log("2Factor response:", response.data);
-
-    if (response.data.Status !== "Success") {
+    if (otpHash !== data.otp_hash) {
       return res.status(400).json({
-        error: "Invalid OTP",
+        success: false,
+        message: "Invalid OTP",
       });
     }
 
-
-    // Check if user exists
-    const { data: existingUser, error: userError } = await supabase
-      .from("users")
-      .select("*")
-      .eq("phone", phone) // 917338821735
-      .maybeSingle();
-
-    // Create user if not exists
-    if (!existingUser) {
-      const newUserId = crypto.randomUUID();
-
-      const { error: insertUserError } = await supabase
-        .from("users")
-        .insert({
-          id: newUserId,
-          phone: phone, 
-          created_at: new Date().toISOString(),
-        });
-    }
-
-    // Delete OTP session
     await supabase
-      .from("otp_sessions")
+      .from("otp_verifications")
       .delete()
       .eq("phone", phone);
 
-    res.json({ success: true });
+    return res.json({
+      success: true,
+      message: "OTP verified successfully",
+    });
+  } catch (e) {
+    console.error(e);
 
-  } catch (err) {
-    console.error("❌ verify-otp error:", err.message);
-
-    res.status(500).json({
-      error: "OTP verification failed",
+    return res.status(500).json({
+      success: false,
+      message: "Verification failed",
     });
   }
 });
 
-app.listen(3000, () => {
-  console.log("🚀 Server running on port 3000");
+app.get("/", (req, res) => {
+  res.send("Fast2SMS OTP Server Running");
 });
 
+const PORT = process.env.PORT || 5000;
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
