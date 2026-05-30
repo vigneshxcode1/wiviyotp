@@ -192,8 +192,11 @@ app.post("/send-otp", async (req, res) => {
   try {
     let { phone } = req.body;
 
-    phone = normalizePhone(phone);
+phone = normalizePhone(phone);
 
+if (!phone.startsWith("91")) {
+  phone = `91${phone}`;
+}
     console.log("📤 Sending OTP to:", phone);
 
     const response = await axios.post(
@@ -212,7 +215,8 @@ app.post("/send-otp", async (req, res) => {
     );
 
     console.log("MSG91 Response:");
-    console.log(JSON.stringify(response.data, null, 2));
+console.log("FULL RESPONSE:");
+console.dir(response.data, { depth: null });
 
     if (response.data.type !== "success") {
       throw new Error(response.data.message || "MSG91 failed to send OTP");
@@ -244,12 +248,23 @@ app.post("/send-otp", async (req, res) => {
     res.json({ success: true });
 
   } catch (err) {
-    console.error("❌ send-otp error:", err.message);
+  console.error("❌ SEND OTP ERROR");
 
-    res.status(500).json({
-      error: "Failed to send OTP",
-    });
+  if (err.response) {
+    console.error("STATUS:", err.response.status);
+    console.error(
+      "DATA:",
+      JSON.stringify(err.response.data, null, 2)
+    );
   }
+
+  console.error(err.message);
+
+  res.status(500).json({
+    success: false,
+    error: err.response?.data || err.message,
+  });
+}
 });
 
 /// VERIFY OTP
@@ -257,8 +272,11 @@ app.post("/verify-otp", async (req, res) => {
   try {
     let { phone, otp } = req.body;
 
-    phone = normalizePhone(phone);
+phone = normalizePhone(phone);
 
+if (!phone.startsWith("91")) {
+  phone = `91${phone}`;
+}
     console.log("📲 Verifying OTP for phone:", phone);
 
     const { data: sessionData, error: sessionError } = await supabase
@@ -296,7 +314,10 @@ app.post("/verify-otp", async (req, res) => {
       }
     );
 
-    console.log("MSG91 response:", response.data);
+console.log(
+  "MSG91 VERIFY:",
+  JSON.stringify(response.data, null, 2)
+);
 
     if (response.data.type !== "success") {
       return res.status(400).json({
@@ -344,6 +365,21 @@ app.post("/verify-otp", async (req, res) => {
     });
   }
 });
+
+
+console.log(
+  "MSG91_AUTH_KEY:",
+  process.env.MSG91_AUTH_KEY
+    ? "Loaded ✅"
+    : "Missing ❌"
+);
+
+console.log(
+  "MSG91_TEMPLATE_ID:",
+  process.env.MSG91_TEMPLATE_ID
+    ? process.env.MSG91_TEMPLATE_ID
+    : "Missing ❌"
+);
 
 app.listen(3000, () => {
   console.log("🚀 Server running on port 3000");
