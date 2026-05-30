@@ -57,38 +57,41 @@ app.post("/send-otp", async (req, res) => {
 
     if (error) throw error;
 
+    // FAST2SMS SMART OTP
     const smsResponse = await axios.post(
-  "https://www.fast2sms.com/dev/bulkV2",
-  {
-    route: "otp",
-    variables_values: otp,
-    numbers: phone,
-  },
-  {
-    headers: {
-      authorization: process.env.FAST2SMS_API_KEY,
-      "Content-Type": "application/json",
-    },
-  }
-);
+      "https://www.fast2sms.com/dev/otp",
+      {
+        otp_id: "45d6bbbddb", // Your approved OTP ID
+        variables_values: otp,
+        route: "otp",
+        numbers: phone,
+      },
+      {
+        headers: {
+          authorization: process.env.FAST2SMS_API_KEY,
+          "Content-Type": "application/json",
+        },
+      }
+    );
 
     return res.json({
       success: true,
       message: "OTP sent successfully",
       data: smsResponse.data,
     });
-  } catch (e) {
-  console.error(
-    "OTP Error:",
-    e.response?.data || e.message || e
-  );
 
-  return res.status(500).json({
-    success: false,
-    message: "Failed to send OTP",
-    error: e.response?.data || e.message,
-  });
-}
+  } catch (e) {
+    console.error(
+      "OTP Error:",
+      e.response?.data || e.message || e
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to send OTP",
+      error: e.response?.data || e.message,
+    });
+  }
 });
 
 // Verify OTP
