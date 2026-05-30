@@ -57,17 +57,20 @@ app.post("/send-otp", async (req, res) => {
 
     if (error) throw error;
 
-    const smsResponse = await axios.get(
-      "https://www.fast2sms.com/dev/bulkV2",
-      {
-        params: {
-          authorization: process.env.FAST2SMS_API_KEY,
-          route: "otp",
-          variables_values: otp,
-          numbers: phone,
-        },
-      }
-    );
+    const smsResponse = await axios.post(
+  "https://www.fast2sms.com/dev/bulkV2",
+  {
+    route: "otp",
+    variables_values: otp,
+    numbers: phone,
+  },
+  {
+    headers: {
+      authorization: process.env.FAST2SMS_API_KEY,
+      "Content-Type": "application/json",
+    },
+  }
+);
 
     return res.json({
       success: true,
@@ -75,13 +78,17 @@ app.post("/send-otp", async (req, res) => {
       data: smsResponse.data,
     });
   } catch (e) {
-    console.error(e);
+  console.error(
+    "OTP Error:",
+    e.response?.data || e.message || e
+  );
 
-    return res.status(500).json({
-      success: false,
-      message: "Failed to send OTP",
-    });
-  }
+  return res.status(500).json({
+    success: false,
+    message: "Failed to send OTP",
+    error: e.response?.data || e.message,
+  });
+}
 });
 
 // Verify OTP
@@ -159,3 +166,4 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
