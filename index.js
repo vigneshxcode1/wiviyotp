@@ -1,4 +1,6 @@
 
+
+
 const express = require("express");
 const axios = require("axios");
 const cors = require("cors");
@@ -140,23 +142,33 @@ app.post("/verify-otp", async (req, res) => {
       });
     }
 
-    const { data: existingUser } = await supabase
-      .from("users")
-      .select("id")
-      .eq("phone", phone)
-      .maybeSingle();
+   const { data: existingUser } = await supabase
+  .from("users")
+  .select("*")
+  .eq("phone", phone)
+  .maybeSingle();
 
-    if (!existingUser) {
-      await supabase
-        .from("users")
-        .insert({
-          id: crypto.randomUUID(),
-          phone,
-          is_verified: true,
-          verified_at: new Date().toISOString(),
-          created_at: new Date().toISOString(),
-        });
-    }
+console.log("EXISTING USER:", existingUser);
+
+if (!existingUser) {
+  const { data, error } = await supabase
+    .from("users")
+    .insert({
+      id: crypto.randomUUID(),
+      phone,
+      is_verified: true,
+      verified_at: new Date().toISOString(),
+      created_at: new Date().toISOString(),
+    })
+    .select();
+
+  console.log("INSERT DATA:", data);
+  console.log("INSERT ERROR:", error);
+
+  if (error) {
+    throw error;
+  }
+}
 
     await supabase
       .from("otp_sessions")
