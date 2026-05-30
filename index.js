@@ -1,5 +1,4 @@
 
-
 const express = require("express");
 const axios = require("axios");
 const cors = require("cors");
@@ -23,51 +22,55 @@ const supabase = createClient(
 const normalizePhone = (phone) =>
   phone.replace(/\D/g, '').trim();
 
-/// SEND OTP
+// /// SEND OTP
 app.post("/send-otp", async (req, res) => {
   try {
     let { phone } = req.body;
 
     phone = normalizePhone(phone);
 
-    console.log("📤 Sending OTP to:", phone);
-
-    const response = await axios.get(
-      `https://www.fast2sms.com/dev/otp/send`
+    const response = await axios.post(
+      "https://www.fast2sms.com/dev/otp/send",
+      {
+        mobile: phone,
+        otp_id: "45d6bbbddb",
+      },
+      {
+        headers: {
+          accept: "application/json",
+          authorization: process.env.FAST2SMS_API_KEY,
+          "content-type": "application/json",
+        },
+      }
     );
 
-    const sessionId = response.data.Details;
-
-    console.log("✅ Session ID:", sessionId);
+    const requestId = response.data.request_id;
 
     await supabase
       .from("otp_sessions")
       .delete()
       .eq("phone", phone);
 
-    const { error: insertError } = await supabase
+    await supabase
       .from("otp_sessions")
       .insert({
         phone,
-        session_id: sessionId,
+        session_id: requestId,
         created_at: new Date().toISOString(),
       });
 
-    if (insertError) {
-      console.error(insertError);
-
-      return res.status(500).json({
-        error: "Failed to save OTP session",
-      });
-    }
-
-    res.json({ success: true });
+    return res.json({
+      success: true,
+      request_id: requestId,
+    });
 
   } catch (err) {
-    console.error("❌ send-otp error:", err.message);
+    console.error("SEND OTP ERROR:",
+      err.response?.data || err.message);
 
-    res.status(500).json({
-      error: "Failed to send OTP",
+    return res.status(500).json({
+      success: false,
+      error: err.response?.data || err.message,
     });
   }
 });
@@ -79,81 +82,85 @@ app.post("/verify-otp", async (req, res) => {
 
     phone = normalizePhone(phone);
 
-    console.log("📲 Verifying OTP for phone:", phone);
-
-    const { data: sessionData, error: sessionError } = await supabase
+    const { data: sessionData } = await supabase
       .from("otp_sessions")
       .select("*")
       .eq("phone", phone)
-      .order("created_at", { ascending: false })
-      .limit(1)
       .maybeSingle();
-
-    if (sessionError) {
-      console.error("Session lookup error:", sessionError);
-
-      return res.status(500).json({
-        error: "Session lookup failed",
-      });
-    }
 
     if (!sessionData) {
       return res.status(400).json({
-        error: "OTP session expired",
+        success: false,
+        error: "OTP session not found",
       });
     }
 
-    console.log("✅ Session found:", sessionData.session_id);
-
-    const response = await axios.get(
-      `https://www.fast2sms.com/dev/otp/verify`
+    const response = await axios.post(
+      "https://www.fast2sms.com/dev/otp/verify",
+      {
+        mobile: phone,
+        otp: otp,
+        otp_id: "45d6bbbddb",
+      },
+      {
+        headers: {
+          accept: "application/json",
+          authorization: process.env.FAST2SMS_API_KEY,
+          "content-type": "application/json",
+        },
+      }
     );
 
-    console.log("2Factor response:", response.data);
-
-    if (response.data.Status !== "Success") {
+    if (
+      response.data.return !== true &&
+      response.data.status_code !== 200
+    ) {
       return res.status(400).json({
+        success: false,
         error: "Invalid OTP",
       });
     }
 
-
-    // Check if user exists
-    const { data: existingUser, error: userError } = await supabase
+    const { data: existingUser } = await supabase
       .from("users")
       .select("*")
-      .eq("phone", phone) // 917338821735
+      .eq("phone", phone)
       .maybeSingle();
 
-    // Create user if not exists
     if (!existingUser) {
-      const newUserId = crypto.randomUUID();
-
-      const { error: insertUserError } = await supabase
+      await supabase
         .from("users")
         .insert({
-          id: newUserId,
-          phone: phone, 
+          id: crypto.randomUUID(),
+          phone,
+          is_verified: true,
+          verified_at: new Date().toISOString(),
           created_at: new Date().toISOString(),
         });
     }
 
-    // Delete OTP session
     await supabase
       .from("otp_sessions")
       .delete()
       .eq("phone", phone);
 
-    res.json({ success: true });
+    return res.json({
+      success: true,
+      message: "OTP verified successfully",
+    });
 
   } catch (err) {
-    console.error("❌ verify-otp error:", err.message);
+    console.error("VERIFY ERROR:",
+      err.response?.data || err.message);
 
-    res.status(500).json({
-      error: "OTP verification failed",
+    return res.status(500).json({
+      success: false,
+      error: err.response?.data || err.message,
     });
   }
 });
+
+
 
 app.listen(3000, () => {
   console.log("🚀 Server running on port 3000");
