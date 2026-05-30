@@ -92,37 +92,28 @@ app.post("/verify-otp", async (req, res) => {
 
     phone = normalizePhone(phone);
 
-    const { data, error } = await supabase
-      .from("otp_verifications")
-      .select("*")
-      .eq("phone", phone)
-      .single();
+    const response = await axios.post(
+      "https://www.fast2sms.com/dev/otp/verify",
+      {
+        mobile: phone,
+        otp: otp,
+        otp_id: "45d6bbbddb"
+      },
+      {
+        headers: {
+          accept: "application/json",
+          authorization: process.env.FAST2SMS_API_KEY,
+          "content-type": "application/json",
+        },
+      }
+    );
 
-    if (error || !data) {
+    console.log("VERIFY RESPONSE:", response.data);
+
+    if (!response.data.return) {
       return res.status(400).json({
         success: false,
-        error: "OTP not found",
-      });
-    }
-
-    if (
-      new Date(data.expires_at) < new Date()
-    ) {
-      return res.status(400).json({
-        success: false,
-        error: "OTP expired",
-      });
-    }
-
-    const otpHash = crypto
-      .createHash("sha256")
-      .update(otp)
-      .digest("hex");
-
-    if (otpHash !== data.otp_hash) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid OTP",
+        message: "Invalid OTP",
       });
     }
 
@@ -133,31 +124,24 @@ app.post("/verify-otp", async (req, res) => {
       .maybeSingle();
 
     if (!existingUser) {
-      await supabase
-        .from("users")
-        .insert({
-          id: crypto.randomUUID(),
-          phone,
-          created_at: new Date().toISOString(),
-        });
+      await supabase.from("users").insert({
+        id: crypto.randomUUID(),
+        phone,
+        created_at: new Date().toISOString(),
+      });
     }
 
-    await supabase
-      .from("otp_verifications")
-      .delete()
-      .eq("phone", phone);
-
-    res.json({
+    return res.json({
       success: true,
       message: "OTP verified successfully",
     });
 
   } catch (err) {
-    console.error(err);
+    console.log(err.response?.data || err.message);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      error: "Verification failed",
+      error: err.response?.data || err.message,
     });
   }
 });
