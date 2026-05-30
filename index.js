@@ -20,45 +20,30 @@ const supabase = createClient(
 
 // Normalize phone
 const normalizePhone = (phone) =>
-  phone.replace(/\D/g, "").trim();
+  phone.replace(/\D/g, '').trim();
 
 /// SEND OTP
 app.post("/send-otp", async (req, res) => {
   try {
     let { phone } = req.body;
 
-phone = normalizePhone(phone);
+    phone = normalizePhone(phone);
 
-if (!phone.startsWith("91")) {
-  phone = `91${phone}`;
-}
     console.log("📤 Sending OTP to:", phone);
 
-    const response = await axios.post(
-      "https://control.msg91.com/api/v5/otp",
-      {
-        mobile: phone,
-        authkey: process.env.MSG91_AUTH_KEY,
-        template_id: process.env.MSG91_TEMPLATE_ID,
-        otp_expiry: 10, // minutes
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
+    const response = await axios.get(
+      // `https://2factor.in/API/V1/${process.env.API_KEY}/SMS/+${phone}/AUTOGEN`
+      `https://2factor.in/API/V1/${process.env.API_KEY}/SMS/${phone}/AUTOGEN`
     );
 
-    console.log("MSG91 Response:");
-console.log("FULL RESPONSE:");
-console.dir(response.data, { depth: null });
 
-    if (response.data.type !== "success") {
-      throw new Error(response.data.message || "MSG91 failed to send OTP");
-    }
+console.log("2Factor Response:");
+console.log(JSON.stringify(response.data, null, 2));
 
-    // MSG91 manages OTP session internally via mobile number
-    // We store the phone so verify-otp knows a session exists
+    const sessionId = response.data.Details;
+
+    console.log("✅ Session ID:", sessionId);
+
     await supabase
       .from("otp_sessions")
       .delete()
@@ -68,7 +53,7 @@ console.dir(response.data, { depth: null });
       .from("otp_sessions")
       .insert({
         phone,
-        session_id: phone, // MSG91 uses mobile as the session key
+        session_id: sessionId,
         created_at: new Date().toISOString(),
       });
 
@@ -83,23 +68,12 @@ console.dir(response.data, { depth: null });
     res.json({ success: true });
 
   } catch (err) {
-  console.error("❌ SEND OTP ERROR");
+    console.error("❌ send-otp error:", err.message);
 
-  if (err.response) {
-    console.error("STATUS:", err.response.status);
-    console.error(
-      "DATA:",
-      JSON.stringify(err.response.data, null, 2)
-    );
+    res.status(500).json({
+      error: "Failed to send OTP",
+    });
   }
-
-  console.error(err.message);
-
-  res.status(500).json({
-    success: false,
-    error: err.response?.data || err.message,
-  });
-}
 });
 
 /// VERIFY OTP
@@ -107,11 +81,8 @@ app.post("/verify-otp", async (req, res) => {
   try {
     let { phone, otp } = req.body;
 
-phone = normalizePhone(phone);
+    phone = normalizePhone(phone);
 
-if (!phone.startsWith("91")) {
-  phone = `91${phone}`;
-}
     console.log("📲 Verifying OTP for phone:", phone);
 
     const { data: sessionData, error: sessionError } = await supabase
@@ -136,35 +107,26 @@ if (!phone.startsWith("91")) {
       });
     }
 
-    console.log("✅ Session found for phone:", phone);
+    console.log("✅ Session found:", sessionData.session_id);
 
     const response = await axios.get(
-      "https://control.msg91.com/api/v5/otp/verify",
-      {
-        params: {
-          mobile: phone,
-          otp: otp,
-          authkey: process.env.MSG91_AUTH_KEY,
-        },
-      }
+      `https://2factor.in/API/V1/${process.env.API_KEY}/SMS/VERIFY/${sessionData.session_id}/${otp}`
     );
 
-console.log(
-  "MSG91 VERIFY:",
-  JSON.stringify(response.data, null, 2)
-);
+    console.log("2Factor response:", response.data);
 
-    if (response.data.type !== "success") {
+    if (response.data.Status !== "Success") {
       return res.status(400).json({
         error: "Invalid OTP",
       });
     }
 
+
     // Check if user exists
     const { data: existingUser, error: userError } = await supabase
       .from("users")
       .select("*")
-      .eq("phone", phone)
+      .eq("phone", phone) // 917338821735
       .maybeSingle();
 
     // Create user if not exists
@@ -175,13 +137,9 @@ console.log(
         .from("users")
         .insert({
           id: newUserId,
-          phone: phone,
+          phone: phone, 
           created_at: new Date().toISOString(),
         });
-
-      if (insertUserError) {
-        console.error("User insert error:", insertUserError);
-      }
     }
 
     // Delete OTP session
@@ -201,21 +159,7 @@ console.log(
   }
 });
 
-
-console.log(
-  "MSG91_AUTH_KEY:",
-  process.env.MSG91_AUTH_KEY
-    ? "Loaded ✅"
-    : "Missing ❌"
-);
-
-console.log(
-  "MSG91_TEMPLATE_ID:",
-  process.env.MSG91_TEMPLATE_ID
-    ? process.env.MSG91_TEMPLATE_ID
-    : "Missing ❌"
-);
-
 app.listen(3000, () => {
   console.log("🚀 Server running on port 3000");
 });
+
