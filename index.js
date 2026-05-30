@@ -24,6 +24,27 @@ const normalizePhone = (phone) =>
 const generateOtp = () =>
   Math.floor(100000 + Math.random() * 900000).toString();
 
+
+app.get("/test-fast2sms", async (req, res) => {
+  try {
+    const response = await axios.get(
+      "https://www.fast2sms.com/dev/wallet",
+      {
+        headers: {
+          authorization: process.env.FAST2SMS_API_KEY,
+        },
+      }
+    );
+
+    res.json(response.data);
+  } catch (e) {
+    res.json({
+      error: e.response?.data || e.message,
+    });
+  }
+});
+
+
 /// SEND OTP
 app.post("/send-otp", async (req, res) => {
   try {
