@@ -1,11 +1,4 @@
 
-
-
-
-
-
-
-
 const express = require("express");
 const axios = require("axios");
 const cors = require("cors");
@@ -27,9 +20,12 @@ const supabase = createClient(
 
 const normalizePhone = (phone) => {
   const digits = phone.replace(/\D/g, "");
-  return digits.length > 10 ? digits.slice(-10) : digits;
+  // Already has 91 prefix (12 digits)
+  if (digits.length === 12 && digits.startsWith("91")) return digits;
+  // 10-digit local → prepend 91
+  if (digits.length === 10) return `91${digits}`;
+  return digits;
 };
-
 app.get("/", (req, res) => {
   res.send("Fast2SMS OTP Server Running 🚀");
 });
