@@ -1,3 +1,11 @@
+
+
+
+
+
+
+
+
 const express = require("express");
 const axios = require("axios");
 const cors = require("cors");
@@ -17,25 +25,7 @@ const supabase = createClient(
   process.env.SUPABASE_KEY
 );
 
-/**
- * Always returns a 12-digit number with 91 prefix (91XXXXXXXXXX).
- * This is the canonical format stored in otp_sessions and users tables.
- *
- * Input:  "+917338821735" / "917338821735" / "7338821735"
- * Output: "917338821735"
- */
-const normalizeTo12 = (phone) => {
-  const digits = phone.replace(/\D/g, "");
-  if (digits.length === 12 && digits.startsWith("91")) return digits;
-  if (digits.length === 10) return `91${digits}`;
-  if (digits.length > 10) return `91${digits.slice(-10)}`;
-  return `91${digits}`;
-};
-
-/**
- * Fast2SMS expects only the 10-digit local number (no country code).
- */
-const toLocal10 = (phone) => {
+const normalizePhone = (phone) => {
   const digits = phone.replace(/\D/g, "");
   return digits.length > 10 ? digits.slice(-10) : digits;
 };
@@ -44,8 +34,7 @@ app.get("/", (req, res) => {
   res.send("Fast2SMS OTP Server Running 🚀");
 });
 
-// ── SEND OTP ──────────────────────────────────────────────────────────────────
-
+/// SEND OTP
 app.post("/send-otp", async (req, res) => {
   try {
     let { phone } = req.body;
@@ -57,15 +46,12 @@ app.post("/send-otp", async (req, res) => {
       });
     }
 
-    // Canonical format for DB storage
-    const phone12 = normalizeTo12(phone);
-    // 10-digit format for Fast2SMS API
-    const phone10 = toLocal10(phone12);
+    phone = normalizePhone(phone);
 
     const response = await axios.post(
       "https://www.fast2sms.com/dev/otp/send",
       {
-        mobile: phone10,       // Fast2SMS expects 10 digits
+        mobile: phone,
         otp_id: "45d6bbbddb",
       },
       {
@@ -79,16 +65,15 @@ app.post("/send-otp", async (req, res) => {
 
     const requestId = response.data.request_id;
 
-    // Store session with 12-digit phone
     await supabase
       .from("otp_sessions")
       .delete()
-      .eq("phone", phone12);
+      .eq("phone", phone);
 
     await supabase
       .from("otp_sessions")
       .insert({
-        phone: phone12,        // stored as 91XXXXXXXXXX
+        phone,
         session_id: requestId,
         created_at: new Date().toISOString(),
       });
@@ -99,7 +84,11 @@ app.post("/send-otp", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("SEND OTP ERROR:", err.response?.data || err.message);
+    console.error(
+      "SEND OTP ERROR:",
+      err.response?.data || err.message
+    );
+
     return res.status(500).json({
       success: false,
       error: err.response?.data || err.message,
@@ -107,8 +96,7 @@ app.post("/send-otp", async (req, res) => {
   }
 });
 
-// ── VERIFY OTP ────────────────────────────────────────────────────────────────
-
+// VERIFY OTP — only verify, no user creation
 app.post("/verify-otp", async (req, res) => {
   try {
     let { phone, otp } = req.body;
@@ -120,15 +108,14 @@ app.post("/verify-otp", async (req, res) => {
       });
     }
 
-    // Canonical format — must match what was stored during send-otp
-    const phone12 = normalizeTo12(phone);
-    // 10-digit format for Fast2SMS API
-    const phone10 = toLocal10(phone12);
+    phone = normalizePhone(phone);
+
+    console.log("VERIFY PHONE:", phone);
 
     const { data: sessionData } = await supabase
       .from("otp_sessions")
       .select("*")
-      .eq("phone", phone12)      // look up by 12-digit phone
+      .eq("phone", phone)
       .maybeSingle();
 
     if (!sessionData) {
@@ -141,7 +128,7 @@ app.post("/verify-otp", async (req, res) => {
     const response = await axios.post(
       "https://www.fast2sms.com/dev/otp/verify",
       {
-        mobile: phone10,         // Fast2SMS expects 10 digits
+        mobile: phone,
         otp,
         otp_id: "45d6bbbddb",
       },
@@ -154,24 +141,30 @@ app.post("/verify-otp", async (req, res) => {
       }
     );
 
+    console.log("FAST2SMS RESPONSE:", response.data);
+
     if (response.data.return !== true && response.data.status_code !== 200) {
-      return res.status(400).json({ success: false, error: "Invalid OTP" });
+      return res.status(400).json({
+        success: false,
+        error: "Invalid OTP",
+      });
     }
 
-    // Clean up session — user creation is Flutter's job
-    await supabase.from("otp_sessions").delete().eq("phone", phone12);
+    await supabase.from("otp_sessions").delete().eq("phone", phone);
 
-    return res.json({ success: true, message: "OTP verified successfully" });
-
+    return res.json({
+      success: true,
+      message: "OTP verified successfully",
+    });
   } catch (err) {
     console.error("VERIFY ERROR:", err.response?.data || err.message);
+
     return res.status(500).json({
       success: false,
       error: err.response?.data || err.message,
     });
   }
 });
-
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, "0.0.0.0", () => {
